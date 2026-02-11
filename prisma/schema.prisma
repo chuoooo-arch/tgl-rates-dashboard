@@ -1,0 +1,93 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model AirRate {
+  id             Int      @id @default(autoincrement())
+  mode           String   @default("AIR")
+
+  origin         String   @map("origin_port_code")
+  destination    String   @map("destination_port_code")
+
+  min            Float?
+  rate45         Float?   @map("rate_45")
+  rate100        Float?   @map("rate_100")
+  rate300        Float?   @map("rate_300")
+  rate500        Float?   @map("rate_500")
+  rate1000       Float?   @map("rate_1000")
+  surcharge1000  Float?   @map("surcharge_1000")
+
+  carrier        String?
+  currency       String?
+  validFrom      DateTime? @map("valid_from")
+  validTo        DateTime? @map("valid_to")
+  etd            String?
+  agency         String?
+
+  fingerprint    String?  @unique
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("air_rate")
+}
+
+model SeaFclRate {
+  id           Int      @id @default(autoincrement())
+  mode         String   @default("SEA_FCL")
+
+  origin       String
+  destination  String
+
+  rate20gp     Float?   @map("rate_20gp")
+  rate40gp     Float?   @map("rate_40gp")
+  rate40hc     Float?   @map("rate_40hc")
+  rate20rf     Float?   @map("rate_20_rf")
+  rate40rf     Float?   @map("rate_40_rf")
+
+  carrier      String?
+  currency     String?
+  validFrom    DateTime? @map("valid_from")
+  validTo      DateTime? @map("valid_to")
+  transitTime  String?   @map("transit_time")
+  etd          String?
+  agency       String?
+
+  fingerprint  String?  @unique
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("sea_fcl_rate")
+}
+
+model SeaLclRate {
+  id            Int      @id @default(autoincrement())
+  mode          String   @default("SEA_LCL")
+
+  origin        String   @map("origin_port_code")
+  destination   String   @map("destination_port_code")
+
+  wm            Float?   @map("w_m")
+  minCharge     Float?   @map("min_charge")
+  refundFreight Float?   @map("refund_freight")
+
+  carrier       String?
+  currency      String?
+  validFrom     DateTime? @map("valid_from")
+  validTo       DateTime? @map("valid_to")
+  transitTime   String?   @map("transit_time")
+  agency        String?
+
+  fingerprint   String?  @unique
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("sea_lcl_rate")
+}
