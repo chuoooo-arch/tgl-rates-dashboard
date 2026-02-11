@@ -36,13 +36,16 @@ export default async function RatesPage({ searchParams }: { searchParams: SP }) 
   const baseContainer = typeof searchParams.baseContainer === "string" ? searchParams.baseContainer : "20GP";
   return (
     <div style={{ maxWidth: "1400px", margin: "0 auto", padding: "32px 16px" }}>
-      <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "28px", fontWeight: "800", marginBottom: "6px", letterSpacing: "-0.02em" }}>
-          TGL FreightIntel
-        </h1>
-        <p style={{ fontSize: "14px", color: "#666" }}>
-          Smart Freight Rate Intelligence Platform
-        </p>
+      <div style={{ marginBottom: "24px", display: "flex", alignItems: "center", gap: "12px" }}>
+        <img src="https://i.postimg.cc/0y9MR7ZP/18951019_262123810923637_4178233151248642491_n.jpg" alt="TGL Logo" style={{ height: "40px", borderRadius: "6px" }} />
+        <div>
+          <h1 style={{ fontSize: "22px", fontWeight: "700", marginBottom: "4px", color: "#2563eb" }}>
+            Thai Global Logistics
+          </h1>
+          <p style={{ fontSize: "12px", color: "#6b7280" }}>
+            Rates Dashboard
+          </p>
+        </div>
       </div>
       <RatesFilterBar searchParams={searchParams} />
       {!data?.ok ? (
