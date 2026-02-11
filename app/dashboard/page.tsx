@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 
 type SP = { [k: string]: string | string[] | undefined };
 
-const contains = (v: string) => ({ contains: v });
+const contains = (v: string) => ({ contains: v, mode: "insensitive" as const });
 
 export default async function Dashboard({ searchParams }: { searchParams: Promise<SP> }) {
   const params = await searchParams;

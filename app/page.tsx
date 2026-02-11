@@ -1,5 +1,8 @@
-import { redirect } from "next/navigation";
-
 export default function Home() {
-  redirect("/rates");
+  return (
+    <div style={{ padding: 40 }}>
+      <h1>Hello Thai Global Logistics 🚚</h1>
+      <p>Next.js ทำงานแล้ว</p>
+    </div>
+  );
 }
