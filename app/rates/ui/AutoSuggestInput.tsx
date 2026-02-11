@@ -23,7 +23,7 @@ export default function AutoSuggestInput({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const debounceRef = useRef<NodeJS.Timeout>();
+  const debounceRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   useEffect(() => {
     if (!value.trim()) {
