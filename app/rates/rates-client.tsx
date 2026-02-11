@@ -2,9 +2,77 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import CompareModal from "./ui/CompareModal";
+import AutoSuggestInput from "./ui/AutoSuggestInput";
 
 type Mode = "SEA_FCL" | "SEA_LCL" | "AIR";
-type Sort = "price_asc" | "price_desc" | "transit_asc" | "transit_desc" | "carrier_asc" | "name_asc" | "refund_desc";
+type Sort = "price_asc" | "price_desc" | "transit_asc" | "transit_desc" | "name_asc";
+
+type Option = { v: string; label: string };
+
+const BASE_OPTIONS: Record<string, Option[]> = {
+  SEA_FCL: [
+    { v: "20GP", label: "20' GP" },
+    { v: "40GP", label: "40' GP" },
+    { v: "40HC", label: "40' HC" },
+    { v: "20RF", label: "20' RF" },
+    { v: "40RF", label: "40' RF" },
+  ],
+  SEA_LCL: [
+    { v: "NET", label: "Net Cost (Lowest)" },
+    { v: "WM", label: "W/M" },
+    { v: "MIN", label: "Min Charge" },
+    { v: "REFUND", label: "Refund" },
+  ],
+  AIR: [
+    { v: "R45", label: "+45" },
+    { v: "R100", label: "+100" },
+    { v: "R300", label: "+300" },
+    { v: "R500", label: "+500" },
+    { v: "R1000", label: "+1000" },
+    { v: "MIN", label: "Min" },
+    { v: "S1000", label: "Surcharge 1000" },
+  ],
+};
+
+const SORT_OPTIONS: Record<string, Option[]> = {
+  SEA_FCL: [
+    { v: "price_asc", label: "Price (Lowest First)" },
+    { v: "price_desc", label: "Price (Highest First)" },
+    { v: "transit_asc", label: "Transit Time" },
+    { v: "name_asc", label: "Carrier A–Z" },
+  ],
+  SEA_LCL: [
+    { v: "price_asc", label: "Price (Lowest First)" },
+    { v: "price_desc", label: "Price (Highest First)" },
+    { v: "transit_asc", label: "Transit Time" },
+    { v: "name_asc", label: "Carrier A–Z" },
+  ],
+  AIR: [
+    { v: "price_asc", label: "Price (Lowest First)" },
+    { v: "price_desc", label: "Price (Highest First)" },
+    { v: "transit_asc", label: "Transit Time" },
+    { v: "name_asc", label: "Airline A–Z" },
+  ],
+};
+
+const FIELD_MAP: Record<string, Record<string, string>> = {
+  SEA_FCL: { "20GP": "rate20gp", "40GP": "rate40gp", "40HC": "rate40hc", "20RF": "rate20rf", "40RF": "rate40rf" },
+  SEA_LCL: { "NET": "netCost", "WM": "wm", "MIN": "minCharge", "REFUND": "refundFreight" },
+  AIR: { "R45": "rate45", "R100": "rate100", "R300": "rate300", "R500": "rate500", "R1000": "rate1000", "MIN": "min", "S1000": "surcharge1000" },
+};
+
+function tierFromWeight(weightKg: number) {
+  if (weightKg <= 45) return "rate45";
+  if (weightKg <= 100) return "rate100";
+  if (weightKg <= 300) return "rate300";
+  if (weightKg <= 500) return "rate500";
+  return "rate1000";
+}
+
+function labelForBase(mode: Mode, base: string) {
+  return BASE_OPTIONS[mode]?.find((o) => o.v === base)?.label ?? base;
+}
 
 export default function RatesClient({
   initial,
@@ -14,90 +82,53 @@ export default function RatesClient({
     origin?: string;
     destination?: string;
     carrier?: string;
-    validDate?: string;
+    validFrom?: string;
+    validTo?: string;
   };
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>((initial.mode as Mode) || "SEA_FCL");
-  const [origin, setOrigin] = useState(initial.origin || "");
-  const [destination, setDestination] = useState(initial.destination || "");
-  const [carrier, setCarrier] = useState(initial.carrier || "");
-  const [validDate, setValidDate] = useState(initial.validDate || "");
-  const [weight, setWeight] = useState<string>("");
+  
+  // Draft state (ค่าที่กำลังพิมพ์)
+  const [draft, setDraft] = useState({
+    origin: initial.origin || "",
+    destination: initial.destination || "",
+    carrier: initial.carrier || "",
+    validFrom: initial.validFrom || "",
+    validTo: initial.validTo || "",
+  });
 
+  // Applied state (ค่าที่ใช้ query จริง)
+  const [applied, setApplied] = useState(draft);
+
+  const [base, setBase] = useState(mode === "SEA_FCL" ? "20GP" : mode === "SEA_LCL" ? "NET" : "R100");
   const [sort, setSort] = useState<Sort>("price_asc");
+  const [weight, setWeight] = useState("");
+
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [take, setTake] = useState(20);
 
   const [rows, setRows] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
-
-  const baseOptionsByMode = useMemo(() => ({
-    SEA_FCL: [
-      { v: "20GP", label: "20' GP" },
-      { v: "40GP", label: "40' GP" },
-      { v: "40HC", label: "40' HC" },
-      { v: "20RF", label: "20' RF" },
-      { v: "40RF", label: "40' RF" },
-    ],
-    SEA_LCL: [
-      { v: "WM", label: "W/M Rate" },
-      { v: "MIN_CHARGE", label: "Min Charge" },
-      { v: "REFUND_FREIGHT", label: "Refund Freight" },
-      { v: "NET_COST", label: "Net Cost" },
-    ],
-    AIR: [
-      { v: "MIN", label: "Min" },
-      { v: "R45", label: "+45" },
-      { v: "R100", label: "+100" },
-      { v: "R300", label: "+300" },
-      { v: "R500", label: "+500" },
-      { v: "R1000", label: "+1000" },
-      { v: "S1000", label: "Surcharge 1000" },
-    ],
-  } as const), []);
-
-  const defaultBaseForMode: Record<Mode, string> = {
-    SEA_FCL: "20GP",
-    SEA_LCL: "WM",
-    AIR: "R100",
-  };
-
-  const [base, setBase] = useState<string>(defaultBaseForMode[mode]);
-  const sortOptionsByMode: Record<Mode, { v: string; label: string }[]> = {
-    SEA_FCL: [
-      { v: "price_asc", label: "Price (Lowest First)" },
-      { v: "transit_asc", label: "Transit Time (Fastest)" },
-      { v: "name_asc", label: "Carrier A–Z" },
-    ],
-    SEA_LCL: [
-      { v: "price_asc", label: "Price (Lowest First)" },
-      { v: "transit_asc", label: "Transit Time (Fastest)" },
-      { v: "name_asc", label: "Carrier A–Z" },
-      { v: "refund_desc", label: "Refund (Most Discount)" },
-    ],
-    AIR: [
-      { v: "price_asc", label: "Price (Lowest First)" },
-      { v: "transit_asc", label: "Transit Time (Fastest)" },
-      { v: "name_asc", label: "Airline A–Z" },
-    ],
-  };
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [showCompare, setShowCompare] = useState(false);
 
   const qs = useMemo(() => {
     const p = new URLSearchParams();
     p.set("mode", mode);
-    if (origin) p.set("origin", origin);
-    if (destination) p.set("destination", destination);
-    if (carrier) p.set("carrier", carrier);
-    if (validDate) p.set("validDate", validDate);
-    if (base) p.set("baseContainer", base);
-    if (weight) p.set("weight", weight);
+    p.set("base", base);
     p.set("sort", sort);
     p.set("page", String(page));
-    p.set("pageSize", String(pageSize));
+    p.set("take", String(take));
+    if (applied.origin) p.set("origin", applied.origin);
+    if (applied.destination) p.set("destination", applied.destination);
+    if (applied.carrier) p.set("carrier", applied.carrier);
+    if (applied.validFrom) p.set("validFrom", applied.validFrom);
+    if (applied.validTo) p.set("validTo", applied.validTo);
+    if (mode === "AIR" && weight) p.set("weight", weight);
     return p.toString();
-  }, [mode, origin, destination, carrier, validDate, sort, page, pageSize, base, weight]);
+  }, [mode, base, sort, page, take, applied, weight]);
 
   async function fetchRates() {
     setLoading(true);
@@ -128,313 +159,456 @@ export default function RatesClient({
   }, [qs]);
 
   useEffect(() => {
-    setBase(defaultBaseForMode[mode]);
-    setPage(1);
     setSort("price_asc");
     setWeight("");
+    setBase(mode === "SEA_FCL" ? "20GP" : mode === "SEA_LCL" ? "NET" : "R100");
+    setPage(1);
+    // Reset draft filters when changing mode
+    setDraft({
+      origin: "",
+      destination: "",
+      carrier: "",
+      validFrom: "",
+      validTo: "",
+    });
+    setApplied({
+      origin: "",
+      destination: "",
+      carrier: "",
+      validFrom: "",
+      validTo: "",
+    });
   }, [mode]);
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  function getRowId(r: any, i: number) {
+    return String(r.id ?? r.fingerprint ?? `${r.mode}-${r.origin}-${r.destination}-${r.carrier}-${i}`);
+  }
 
-  // Field maps for reading row values for the selected base
-  const FIELD_MAP_BY_MODE: Record<string, Record<string, string>> = {
-    SEA_FCL: { "20GP": "rate20gp", "40GP": "rate40gp", "40HC": "rate40hc", "20RF": "rate20rf", "40RF": "rate40rf" },
-    SEA_LCL: { WM: "wm", MIN_CHARGE: "minCharge", REFUND_FREIGHT: "refundFreight", NET_COST: "netCost" },
-    AIR: { MIN: "min", R45: "rate45", R100: "rate100", R300: "rate300", R500: "rate500", R1000: "rate1000", S1000: "surcharge1000" },
-  };
+  function toggleCompare(id: string) {
+    setCompareIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      if (prev.length >= 3) return prev; // จำกัด 3
+      return [...prev, id];
+    });
+  }
 
-  const labelForBase = (m: Mode, b: string) => {
-    const opts = baseOptionsByMode[m] as any;
-    return opts.find((o: any) => o.v === b)?.label ?? b;
-  };
+  function onSearch() {
+    setApplied(draft);
+    setPage(1);
+  }
+
+  const hasDraftChanges = JSON.stringify(draft) !== JSON.stringify(applied);
+
+  const originLabel = mode === "AIR" ? "Origin (Airport)" : "POL (Origin)";
+  const destLabel = mode === "AIR" ? "Destination (Airport)" : "POD (Destination)";
+
+  const totalPages = Math.max(1, Math.ceil(total / take));
+  const weightKg = Number(weight || "0");
+  const airTierField = mode === "AIR" && weightKg > 0 ? tierFromWeight(weightKg) : FIELD_MAP.AIR[base];
 
   return (
-    <div style={{ padding: "24px", fontFamily: "system-ui", maxWidth: "1400px", margin: "0 auto" }}>
-      <h1 style={{ marginBottom: "12px", fontSize: "28px", fontWeight: "700" }}>Rates Dashboard — {mode}</h1>
-
-      <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
-        {(["SEA_FCL", "SEA_LCL", "AIR"] as Mode[]).map((m) => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            style={{
-              padding: "8px 12px",
-              borderRadius: "6px",
-              border: "1px solid #ddd",
-              background: mode === m ? "#111" : "#fff",
-              color: mode === m ? "#fff" : "#111",
-              cursor: "pointer",
-              fontWeight: 700,
-            }}
-          >
-            {m.replace("SEA_", "")}
-          </button>
-        ))}
-      </div>
-
-      {/* Filters */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: "12px",
-          marginBottom: "16px",
-          padding: "12px",
-          background: "#f9f9f9",
-          borderRadius: "8px",
-        }}
-      >
-        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-          <label style={{ fontSize: "12px", color: "#666", fontWeight: "600" }}>
-            {mode === "AIR" ? "Origin (Airport)" : mode === "SEA_LCL" ? "POL" : "Origin (POL)"}
-          </label>
-          <input
-            type="text"
-            placeholder="e.g., SIN"
-            value={origin}
-            onChange={(e) => {
-              setOrigin(e.target.value);
-              setPage(1);
-            }}
-            style={{ padding: "8px 10px", border: "1px solid #ddd", borderRadius: "4px", fontSize: "14px" }}
-          />
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="mb-8 animate-slide-in">
+          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-2">
+            Rates Dashboard
+          </h1>
+          <p className="text-slate-600 dark:text-slate-400">
+            Compare shipping rates across {mode} routes
+          </p>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-          <label style={{ fontSize: "12px", color: "#666", fontWeight: "600" }}>
-            {mode === "AIR" ? "Destination (Airport)" : mode === "SEA_LCL" ? "POD" : "Destination (POD)"}
-          </label>
-          <input
-            type="text"
-            placeholder="e.g., LAX"
-            value={destination}
-            onChange={(e) => {
-              setDestination(e.target.value);
-              setPage(1);
-            }}
-            style={{ padding: "8px 10px", border: "1px solid #ddd", borderRadius: "4px", fontSize: "14px" }}
-          />
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-          <label style={{ fontSize: "12px", color: "#666", fontWeight: "600" }}>Carrier</label>
-          <input
-            type="text"
-            placeholder="optional"
-            value={carrier}
-            onChange={(e) => {
-              setCarrier(e.target.value);
-              setPage(1);
-            }}
-            style={{ padding: "8px 10px", border: "1px solid #ddd", borderRadius: "4px", fontSize: "14px" }}
-          />
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-          <label style={{ fontSize: "12px", color: "#666", fontWeight: "600" }}>Valid Date</label>
-          <input
-            type="date"
-            value={validDate}
-            onChange={(e) => {
-              setValidDate(e.target.value);
-              setPage(1);
-            }}
-            style={{ padding: "8px 10px", border: "1px solid #ddd", borderRadius: "4px", fontSize: "14px" }}
-          />
-        </div>
-
-        {mode === "AIR" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-            <label style={{ fontSize: "12px", color: "#666", fontWeight: "600" }}>Weight (kg)</label>
-            <input
-              type="number"
-              min="0"
-              placeholder="e.g., 120"
-              value={weight}
-              onChange={(e) => {
-                setWeight(e.target.value);
-                setPage(1);
-              }}
-              style={{ padding: "8px 10px", border: "1px solid #ddd", borderRadius: "4px", fontSize: "14px" }}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Controls */}
-      <div style={{ display: "flex", gap: "12px", marginBottom: "20px", alignItems: "flex-end", flexWrap: "wrap" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-          <label style={{ fontSize: "12px", color: "#666", fontWeight: "600" }}>Base (for sorting)</label>
-          <select
-            value={base}
-            onChange={(e) => {
-              setBase(e.target.value);
-              setPage(1);
-            }}
-            style={{ padding: "8px 10px", border: "1px solid #ddd", borderRadius: "4px", fontSize: "14px", cursor: "pointer", background: "#fff" }}
-          >
-            {baseOptionsByMode[mode].map((o) => (
-              <option key={o.v} value={o.v}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-          <label style={{ fontSize: "12px", color: "#666", fontWeight: "600" }}>Sort By</label>
-          <select
-            value={sort}
-            onChange={(e) => {
-              setSort(e.target.value as Sort);
-              setPage(1);
-            }}
-            style={{ padding: "8px 10px", border: "1px solid #ddd", borderRadius: "4px", fontSize: "14px", cursor: "pointer", background: "#fff" }}
-          >
-            {sortOptionsByMode[mode].map((o) => (
-              <option key={o.v} value={o.v}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-          <label style={{ fontSize: "12px", color: "#666", fontWeight: "600" }}>Per Page</label>
-          <select
-            value={pageSize}
-            onChange={(e) => {
-              setPageSize(Number(e.target.value));
-              setPage(1);
-            }}
-            style={{ padding: "8px 10px", border: "1px solid #ddd", borderRadius: "4px", fontSize: "14px", cursor: "pointer", background: "#fff" }}
-          >
-            <option value="5">5</option>
-            <option value="10">10</option>
-            <option value="25">25</option>
-            <option value="50">50</option>
-          </select>
-        </div>
-
-        <button
-          onClick={() => {
-            setOrigin("");
-            setDestination("");
-            setCarrier("");
-            setValidDate("");
-            setPage(1);
-            setSort("price_asc");
-          }}
-          style={{ padding: "8px 24px", background: "#ddd", color: "#111", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "600", fontSize: "14px" }}
-        >
-          Reset
-        </button>
-
-        <div style={{ marginLeft: "auto", fontSize: "13px", color: "#666" }}>{loading ? "Loading..." : `${total} results`}</div>
-      </div>
-
-      {/* Results */}
-      {rows.length === 0 && !loading ? (
-        <div style={{ textAlign: "center", padding: "48px 24px", color: "#999" }}>No rates found. Try adjusting your filters.</div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {rows.map((row) => {
-            // selected field key for this mode/base
-            const fieldKey = (FIELD_MAP_BY_MODE as any)[mode][base] as string | undefined;
-            const selectedPrice = fieldKey ? (row as any)[fieldKey] ?? null : null;
-
-            return (
-              <div
-                key={row.id}
-                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px", background: "#fff", border: "1px solid #ddd", borderRadius: "8px", boxShadow: "0 1px 3px rgba(0,0,0,0.08)", gap: "16px", flexWrap: "wrap" }}
-              >
-                <div style={{ flex: "1 1 300px", minWidth: "200px" }}>
-                  <div style={{ fontSize: "16px", fontWeight: "700", color: "#111", marginBottom: "4px" }}>{row.carrier ?? "N/A"}</div>
-                  <div style={{ fontSize: "14px", color: "#666", marginBottom: "8px" }}>
-                    <strong>{row.origin}</strong> → <strong>{row.destination}</strong>
-                  </div>
-                  <div style={{ fontSize: "12px", color: "#999", display: "flex", gap: "12px" }}>
-                    {row.transitTime && <span>Transit: {row.transitTime} days</span>}
-                    {row.etd && <span>ETD: {row.etd}</span>}
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: "8px", flex: "0 1 auto", alignItems: "center" }}>
-                  {/* Render main selected base price */}
-                  <PriceBox label={`${labelForBase(mode, base)} (Base)`} price={selectedPrice} currency={row.currency} isCheapest={false} />
-
-                  {/* Extra: show a few common fields per mode for context */}
-                  {mode === "SEA_FCL" && (
-                    <>
-                      <PriceBox label="20' GP" price={row.rate20gp} currency={row.currency} isCheapest={row.rate20gp === row.effectivePrice && row.effectivePrice !== null} />
-                      <PriceBox label="40' GP" price={row.rate40gp} currency={row.currency} isCheapest={row.rate40gp === row.effectivePrice && row.effectivePrice !== null} />
-                      <PriceBox label="40' HC" price={row.rate40hc} currency={row.currency} isCheapest={row.rate40hc === row.effectivePrice && row.effectivePrice !== null} />
-                    </>
-                  )}
-
-                  {mode === "SEA_LCL" && (
-                    <>
-                      <PriceBox label="W/M" price={row.wm} currency={row.currency} isCheapest={false} />
-                      <PriceBox label="Min Charge" price={row.minCharge} currency={row.currency} isCheapest={false} />
-                      <PriceBox label="Refund Freight" price={row.refundFreight} currency={row.currency} isCheapest={false} />
-                    </>
-                  )}
-
-                  {mode === "AIR" && (
-                    <>
-                      <PriceBox label="Min" price={row.min} currency={row.currency} isCheapest={false} />
-                      <PriceBox label="+45" price={row.rate45} currency={row.currency} isCheapest={false} />
-                      <PriceBox label="+100" price={row.rate100} currency={row.currency} isCheapest={false} />
-                    </>
-                  )}
-                </div>
-
-                <div style={{ display: "flex", gap: "8px", flex: "0 1 auto" }}>
-                  <button style={{ padding: "6px 12px", background: "#007bff", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "12px", fontWeight: "600" }}>Get Quote</button>
-                  <button style={{ padding: "6px 12px", background: "#28a745", color: "#fff", border: "none", borderRadius: "4px", cursor: "pointer", fontSize: "12px", fontWeight: "600" }}>Book</button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div style={{ display: "flex", gap: "8px", marginTop: "24px", justifyContent: "center", alignItems: "center", flexWrap: "wrap" }}>
-          <button
-            onClick={() => setPage(Math.max(1, page - 1))}
-            disabled={page === 1}
-            style={{ padding: "6px 12px", background: page === 1 ? "#ddd" : "#f0f0f0", color: "#111", border: "1px solid #ddd", borderRadius: "4px", cursor: page === 1 ? "not-allowed" : "pointer", fontWeight: "600", fontSize: "13px" }}
-          >
-            ← Prev
-          </button>
-
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-            <button key={p} onClick={() => setPage(p)} style={{ padding: "6px 10px", background: page === p ? "#111" : "#f0f0f0", color: page === p ? "#fff" : "#111", border: "1px solid #ddd", borderRadius: "4px", cursor: "pointer", fontWeight: page === p ? "700" : "600", fontSize: "13px" }}>
-              {p}
+        {/* Mode Selector */}
+        <div className="flex gap-3 mb-6 animate-slide-in" style={{ animationDelay: '0.1s' }}>
+          {(["SEA_FCL", "SEA_LCL", "AIR"] as Mode[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`
+                px-6 py-3 rounded-xl font-semibold text-sm
+                transition-all duration-300 transform hover:scale-105
+                ${mode === m
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/50'
+                  : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 shadow-sm'
+                }
+              `}
+            >
+              {m.replace("SEA_", "")}
             </button>
           ))}
-
-          <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page === totalPages} style={{ padding: "6px 12px", background: page === totalPages ? "#ddd" : "#f0f0f0", color: "#111", border: "1px solid #ddd", borderRadius: "4px", cursor: page === totalPages ? "not-allowed" : "pointer", fontWeight: "600", fontSize: "13px" }}>
-            Next →
-          </button>
         </div>
-      )}
+
+        {/* Filters Card */}
+        <div 
+          className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 p-6 mb-6 animate-slide-in"
+          style={{ animationDelay: '0.2s' }}
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">
+                {originLabel}
+              </label>
+              <AutoSuggestInput
+                value={draft.origin}
+                onChange={(v) => setDraft((p) => ({ ...p, origin: v }))}
+                placeholder={mode === "AIR" ? "Origin (Airport) e.g. BKK" : "POL (Port) e.g. SIN"}
+                apiUrl={`/api/lookup/locations?type=${mode === "AIR" ? "airport" : "port"}`}
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">
+                {destLabel}
+              </label>
+              <AutoSuggestInput
+                value={draft.destination}
+                onChange={(v) => setDraft((p) => ({ ...p, destination: v }))}
+                placeholder={mode === "AIR" ? "Destination (Airport) e.g. LAX" : "POD (Port) e.g. LAX"}
+                apiUrl={`/api/lookup/locations?type=${mode === "AIR" ? "airport" : "port"}`}
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">
+                Carrier
+              </label>
+              <AutoSuggestInput
+                value={draft.carrier}
+                onChange={(v) => setDraft((p) => ({ ...p, carrier: v }))}
+                placeholder="Carrier / Airline"
+                apiUrl="/api/lookup/partners?type=carrier"
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">
+                Valid From
+              </label>
+              <input
+                type="date"
+                value={draft.validFrom}
+                onChange={(e) => setDraft((p) => ({ ...p, validFrom: e.target.value }))}
+                className="px-4 py-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow text-sm"
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wide">
+                Valid To
+              </label>
+              <input
+                type="date"
+                value={draft.validTo}
+                onChange={(e) => setDraft((p) => ({ ...p, validTo: e.target.value }))}
+                className="px-4 py-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow text-sm"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Controls Bar */}
+        <div className="flex flex-wrap items-center gap-4 mb-6 animate-slide-in" style={{ animationDelay: '0.3s' }}>
+          <div className="flex items-center gap-3 px-4 py-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm">
+            <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Base</span>
+            <select 
+              className="px-3 py-1.5 bg-slate-50 dark:bg-slate-700 border-0 rounded-md text-sm font-medium focus:ring-2 focus:ring-blue-500"
+              value={base} 
+              onChange={(e) => setBase(e.target.value)}
+            >
+              {BASE_OPTIONS[mode].map((o) => (
+                <option key={o.v} value={o.v}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {mode === "AIR" && (
+            <div className="flex items-center gap-3 px-4 py-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm">
+              <span className="text-sm font-medium text-slate-600 dark:text-slate-400">Weight (kg)</span>
+              <input
+                className="w-24 px-3 py-1.5 bg-slate-50 dark:bg-slate-700 border-0 rounded-md text-sm font-medium focus:ring-2 focus:ring-blue-500"
+                inputMode="numeric"
+                placeholder="e.g. 120"
+                value={weight}
+                onChange={(e) => {
+                  setWeight(e.target.value.replace(/[^\d]/g, ""));
+                  setPage(1);
+                }}
+              />
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 ml-auto">
+            <select 
+              className="px-4 py-2 bg-white dark:bg-slate-800 rounded-lg shadow-sm text-sm font-medium focus:ring-2 focus:ring-blue-500"
+              value={sort} 
+              onChange={(e) => setSort(e.target.value as Sort)}
+            >
+              {SORT_OPTIONS[mode].map((o) => (
+                <option key={o.v} value={o.v}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+
+            {hasDraftChanges && (
+              <span className="flex items-center gap-2 text-xs font-medium text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 px-3 py-2 rounded-lg animate-fade-in">
+                <span className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></span>
+                Changes pending
+              </span>
+            )}
+
+            <button 
+              onClick={onSearch}
+              className={`
+                px-6 py-2 rounded-lg font-semibold text-sm
+                transition-all duration-300 transform hover:scale-105
+                ${hasDraftChanges 
+                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/30 hover:shadow-xl' 
+                  : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                }
+              `}
+            >
+              Search
+            </button>
+          </div>
+        </div>
+
+        {/* Results */}
+        {rows.length === 0 && !loading ? (
+          <div className="text-center py-16 px-6 text-slate-500 dark:text-slate-400 animate-fade-in">
+            <svg className="mx-auto h-16 w-16 text-slate-300 dark:text-slate-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <p className="text-lg font-medium">No rates found</p>
+            <p className="text-sm mt-2">Try adjusting your filters or search criteria</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4 animate-fade-in">
+            {rows.map((row, i) => {
+              const id = getRowId(row, i);
+              const checked = compareIds.includes(id);
+              const baseField = FIELD_MAP[mode][base];
+              const baseValue = baseField ? (row as any)[baseField] ?? null : null;
+
+              const selectedAirField = mode === "AIR" ? airTierField : null;
+
+              const netCost = mode === "SEA_LCL"
+                ? (row.netCost ?? (typeof row.wm === "number" || typeof row.minCharge === "number" ? (row.wm ?? row.minCharge ?? 0) + (row.refundFreight ?? 0) : null))
+                : null;
+
+              return (
+                <div
+                  key={row.id}
+                  className="relative flex flex-wrap justify-between items-center gap-6 p-6 bg-white dark:bg-slate-800 
+                             border border-slate-200 dark:border-slate-700 rounded-xl shadow-md
+                             hover:shadow-xl transition-all duration-300 hover:scale-[1.01]"
+                  style={{ animationDelay: `${i * 0.05}s` }}
+                >
+                  <button
+                    className={`h-7 w-7 rounded-lg border-2 flex items-center justify-center absolute top-4 right-4 
+                               transition-all duration-200 hover:scale-110
+                               ${checked 
+                                 ? "bg-gradient-to-br from-blue-600 to-indigo-600 text-white border-blue-600 shadow-lg shadow-blue-500/30" 
+                                 : "bg-white dark:bg-slate-700 border-slate-300 dark:border-slate-600 hover:border-blue-400"
+                               }`}
+                    onClick={() => toggleCompare(id)}
+                    title="Add to compare (max 3)"
+                  >
+                    {checked ? "✓" : ""}
+                  </button>
+
+                  <div className="flex-1 min-w-[200px]">
+                    <div className="text-lg font-bold text-slate-900 dark:text-white mb-1">
+                      {row.carrier ?? "N/A"}
+                    </div>
+                    <div className="text-sm text-slate-600 dark:text-slate-300 mb-3 flex items-center gap-2">
+                      <span className="font-semibold text-blue-600 dark:text-blue-400">{row.origin}</span>
+                      <svg className="h-4 w-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                      </svg>
+                      <span className="font-semibold text-indigo-600 dark:text-indigo-400">{row.destination}</span>
+                    </div>
+                    <div className="flex gap-4 text-xs text-slate-500 dark:text-slate-400 mb-2">
+                      {row.transitTime && (
+                        <span className="flex items-center gap-1">
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          Transit: {row.transitTime} days
+                        </span>
+                      )}
+                      {row.etd && (
+                        <span className="flex items-center gap-1">
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                          ETD: {row.etd}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-400 dark:text-slate-500">
+                      Valid: {fmt(row.validFrom)} → {fmt(row.validTo)}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 flex-wrap items-center">
+                    <PriceBox label={`Base: ${labelForBase(mode, base)}`} price={baseValue ?? (mode === "SEA_LCL" ? netCost : null)} currency={row.currency} isSelected />
+
+                    {mode === "SEA_FCL" && (
+                      <>
+                        <PriceBox label="20' GP" price={row.rate20gp} currency={row.currency} />
+                        <PriceBox label="40' GP" price={row.rate40gp} currency={row.currency} />
+                        <PriceBox label="40' HC" price={row.rate40hc} currency={row.currency} />
+                      </>
+                    )}
+
+                    {mode === "SEA_LCL" && (
+                      <>
+                        <PriceBox label="W/M" price={row.wm} currency={row.currency} />
+                        <PriceBox label="Min" price={row.minCharge} currency={row.currency} />
+                        <PriceBox label="Refund" price={row.refundFreight} currency={row.currency} />
+                        <PriceBox label="Net" price={netCost} currency={row.currency} />
+                      </>
+                    )}
+
+                    {mode === "AIR" && (
+                      <>
+                        <PriceBox label="+45" price={row.rate45} currency={row.currency} isSelected={selectedAirField === "rate45"} />
+                        <PriceBox label="+100" price={row.rate100} currency={row.currency} isSelected={selectedAirField === "rate100"} />
+                        <PriceBox label="+300" price={row.rate300} currency={row.currency} isSelected={selectedAirField === "rate300"} />
+                        <PriceBox label="+500" price={row.rate500} currency={row.currency} isSelected={selectedAirField === "rate500"} />
+                        <PriceBox label="+1000" price={row.rate1000} currency={row.currency} isSelected={selectedAirField === "rate1000"} />
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex gap-2 mt-8 justify-center items-center flex-wrap animate-fade-in">
+            <button 
+              onClick={() => setPage(Math.max(1, page - 1))} 
+              disabled={page === 1}
+              className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-200
+                         ${page === 1 
+                           ? "bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed" 
+                           : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 hover:border-blue-500 hover:shadow-md"
+                         }`}
+            >
+              ← Prev
+            </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+              <button 
+                key={p} 
+                onClick={() => setPage(p)}
+                className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-200
+                           ${page === p 
+                             ? "bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/30" 
+                             : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 hover:border-blue-500 hover:shadow-md"
+                           }`}
+              >
+                {p}
+              </button>
+            ))}
+            <button 
+              onClick={() => setPage(Math.min(totalPages, page + 1))} 
+              disabled={page === totalPages}
+              className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-200
+                         ${page === totalPages 
+                           ? "bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed" 
+                           : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 hover:border-blue-500 hover:shadow-md"
+                         }`}
+            >
+              Next →
+            </button>
+          </div>
+        )}
+
+        {/* Compare Floating Bar */}
+        {compareIds.length > 0 && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-slide-in">
+            <div className="flex items-center gap-4 rounded-2xl border border-slate-200 dark:border-slate-700 
+                            bg-white dark:bg-slate-800 px-6 py-4 shadow-2xl backdrop-blur-xl">
+              <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                Compare <span className="font-bold text-blue-600 dark:text-blue-400">{compareIds.length}</span>/3 selected
+              </div>
+
+              <button
+                className="rounded-lg bg-slate-100 dark:bg-slate-700 px-4 py-2 text-sm font-medium 
+                           text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-600 
+                           transition-colors duration-200"
+                onClick={() => setCompareIds([])}
+              >
+                Clear
+              </button>
+
+              <button
+                className="rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-2 text-sm font-semibold 
+                           text-white hover:shadow-xl hover:scale-105 transition-all duration-200 
+                           shadow-lg shadow-blue-500/30"
+                onClick={() => setShowCompare(true)}
+              >
+                Compare
+              </button>
+            </div>
+          </div>
+        )}
+
+        <CompareModal
+          open={showCompare}
+          onClose={() => setShowCompare(false)}
+          mode={mode}
+          items={rows
+            .map((r, i) => ({ r, id: getRowId(r, i) }))
+            .filter((x) => compareIds.includes(x.id))
+            .map((x) => x.r)}
+        />
+      </div>
     </div>
   );
 }
 
-function PriceBox({ label, price, currency, isCheapest }: { label: string; price: number | null | undefined; currency: string | undefined; isCheapest: boolean }) {
+function fmt(d?: any) {
+  if (!d) return "—";
+  const x = new Date(d);
+  return Number.isNaN(x.getTime()) ? "—" : x.toISOString().slice(0, 10);
+}
+
+function PriceBox({
+  label,
+  price,
+  currency,
+  isSelected,
+}: {
+  label: string;
+  price: number | null | undefined;
+  currency: string | undefined;
+  isSelected?: boolean;
+}) {
   const hasPrice = price !== null && price !== undefined;
-  const bgColor = isCheapest && hasPrice ? "#fff3cd" : "#f9f9f9";
-  const borderColor = isCheapest && hasPrice ? "#ffc107" : "#ddd";
 
   return (
-    <div style={{ textAlign: "center", padding: "12px 10px", background: bgColor, border: `1px solid ${borderColor}`, borderRadius: "6px", minWidth: "100px" }}>
-      <div style={{ fontSize: "11px", color: "#666", marginBottom: "4px", fontWeight: "600" }}>{label}</div>
-      <div style={{ fontSize: "15px", fontWeight: "700", color: "#111" }}>{hasPrice ? `${currency ?? "USD"} ${Number(price).toLocaleString()}` : "—"}</div>
-      {isCheapest && hasPrice && <div style={{ fontSize: "9px", color: "#ff6b00", fontWeight: "700", marginTop: "2px" }}>🔥 Best</div>}
+    <div 
+      className={`text-center px-4 py-3 rounded-lg min-w-[110px] transition-all duration-200
+                 ${isSelected 
+                   ? "bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border-2 border-blue-400 dark:border-blue-600 shadow-md" 
+                   : "bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600"
+                 }`}
+    >
+      <div className="text-xs text-slate-600 dark:text-slate-400 mb-1 font-semibold uppercase tracking-wide">
+        {label}
+      </div>
+      <div className={`text-sm font-bold ${isSelected ? "text-blue-700 dark:text-blue-300" : "text-slate-900 dark:text-white"}`}>
+        {hasPrice ? `${currency ?? "USD"} ${Number(price).toLocaleString()}` : "—"}
+      </div>
     </div>
   );
 }
+
