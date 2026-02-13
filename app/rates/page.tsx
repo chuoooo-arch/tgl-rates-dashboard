@@ -1,5 +1,6 @@
 import RatesClient from "./rates-client";
 import UploadExcel from "@/components/UploadExcel";
+import PasswordProtect from "@/components/PasswordProtect";
 
 type SP = Record<string, string | string[] | undefined>;
 
@@ -12,7 +13,7 @@ export default async function RatesPage({ searchParams }: { searchParams: Promis
   const validFrom = typeof sp.validFrom === "string" ? sp.validFrom : "";
   const validTo = typeof sp.validTo === "string" ? sp.validTo : "";
 
-  return (
+  const content = (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
       {/* Header with Logo */}
       <div className="bg-white dark:bg-slate-800 shadow-md border-b border-slate-200 dark:border-slate-700">
@@ -54,4 +55,5 @@ export default async function RatesPage({ searchParams }: { searchParams: Promis
       </div>
     </div>
   );
-}
+
+  return <PasswordProtect correctPassword="36925">{content}</PasswordProtect>;
