@@ -21,7 +21,7 @@ export const seaLclImporter: Importer = {
       (h.includes("refund_freight") ? 2 : 0);
     return score;
   },
-  async run({ prisma, wb }) {
+  async run({ prisma, wb, batchId }) {
     const found = findSheetWithHeader(wb, ["origin_port_code", "destination_port_code"]);
     if (!found) throw new Error("SEA_LCL: หา header ไม่เจอ");
     const { sheetName, aoa, headerRowIndex } = found;
@@ -67,6 +67,7 @@ export const seaLclImporter: Importer = {
           validTo,
           transitTime: transitTimeN || null,
           agency: agencyN || null,
+          batchId: batchId || null,
 
           fingerprint: makeFingerprint([
             "SEA_LCL",

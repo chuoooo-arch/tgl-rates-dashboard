@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import CompareModal from "./ui/CompareModal";
 import AutoSuggestInput from "./ui/AutoSuggestInput";
+import DeleteModal from "@/components/DeleteModal";
 
 type Mode = "SEA_FCL" | "SEA_LCL" | "AIR";
 type Sort = "price_asc" | "price_desc" | "transit_asc" | "transit_desc" | "name_asc";
@@ -114,6 +115,10 @@ export default function RatesClient({
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [showCompare, setShowCompare] = useState(false);
 
+  // Delete modal state
+  const [deleteModal, setDeleteModal] = useState({ open: false, type: "single" as "single" | "batch", rowId: null as number | null, batchId: null as string | null });
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   const qs = useMemo(() => {
     const p = new URLSearchParams();
     p.set("mode", mode);
@@ -195,6 +200,50 @@ export default function RatesClient({
   function onSearch() {
     setApplied(draft);
     setPage(1);
+  }
+
+  async function handleDeleteRate(password: string) {
+    if (!deleteModal.rowId) return;
+    setDeleteLoading(true);
+    try {
+      const res = await fetch(`/api/rates/${deleteModal.rowId}?mode=${mode}`, {
+        method: "DELETE",
+        headers: { "x-delete-password": password },
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setDeleteModal({ open: false, type: "single", rowId: null, batchId: null });
+        await fetchRates(); // Refresh the list
+      } else {
+        throw new Error(json.error || "Failed to delete");
+      }
+    } catch (e: any) {
+      throw new Error(e.message || "Delete failed");
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
+
+  async function handleDeleteBatch(password: string) {
+    if (!deleteModal.batchId) return;
+    setDeleteLoading(true);
+    try {
+      const res = await fetch(`/api/rates/batch?batchId=${deleteModal.batchId}&mode=${mode}`, {
+        method: "DELETE",
+        headers: { "x-delete-password": password },
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setDeleteModal({ open: false, type: "single", rowId: null, batchId: null });
+        await fetchRates(); // Refresh the list
+      } else {
+        throw new Error(json.error || "Failed to delete batch");
+      }
+    } catch (e: any) {
+      throw new Error(e.message || "Delete batch failed");
+    } finally {
+      setDeleteLoading(false);
+    }
   }
 
   const hasDraftChanges = JSON.stringify(draft) !== JSON.stringify(applied);
@@ -420,6 +469,15 @@ export default function RatesClient({
                     {checked ? "✓" : ""}
                   </button>
 
+                  <button
+                    className="h-7 w-7 rounded-lg border-2 border-red-300 dark:border-red-600 flex items-center justify-center absolute top-4 right-14 
+                               transition-all duration-200 hover:scale-110 hover:bg-red-50 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400"
+                    onClick={() => setDeleteModal({ open: true, type: "single", rowId: row.id, batchId: null })}
+                    title="Delete this rate"
+                  >
+                    🗑️
+                  </button>
+
                   <div className="flex-1 min-w-[200px]">
                     <div className="text-lg font-bold text-slate-900 dark:text-white mb-1">
                       {row.carrier ?? "N/A"}
@@ -569,6 +627,19 @@ export default function RatesClient({
             .map((r, i) => ({ r, id: getRowId(r, i) }))
             .filter((x) => compareIds.includes(x.id))
             .map((x) => x.r)}
+        />
+
+        <DeleteModal
+          open={deleteModal.open}
+          onClose={() => setDeleteModal({ open: false, type: "single", rowId: null, batchId: null })}
+          onConfirm={deleteModal.type === "single" ? handleDeleteRate : handleDeleteBatch}
+          title={deleteModal.type === "single" ? "Delete Rate" : "Delete Batch"}
+          message={
+            deleteModal.type === "single"
+              ? "This will permanently delete this single rate record. Enter password to confirm."
+              : "This will delete ALL rates from this imported batch. Enter password to confirm."
+          }
+          isLoading={deleteLoading}
         />
       </div>
     </div>

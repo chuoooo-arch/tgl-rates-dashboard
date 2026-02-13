@@ -9,6 +9,7 @@ const importers: Importer[] = [seaFclImporter, seaLclImporter, airImporter];
 export const runImport = async (args: {
   prisma: any;
   wb: any;
+  batchId?: string;
 }): Promise<ImportResult> => {
   // Scan all sheets and first 30 rows to find the best matching header row
   let best: { importer: Importer; sheetName: string; headerRowIndex: number; score: number } | null =
@@ -39,5 +40,5 @@ export const runImport = async (args: {
   }
 
   // Run the best matching importer (which will do its own sheet/header detection)
-  return best.importer.run({ prisma: args.prisma, wb: args.wb });
+  return best.importer.run({ prisma: args.prisma, wb: args.wb, batchId: args.batchId });
 };

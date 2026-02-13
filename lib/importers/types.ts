@@ -18,6 +18,7 @@ export type Importer = {
   run: (args: {
     prisma: any;
     wb: WorkbookLike;
+    batchId?: string;
   }) => Promise<ImportResult>;
 };
 

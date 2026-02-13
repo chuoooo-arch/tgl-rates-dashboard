@@ -23,7 +23,7 @@ export const airImporter: Importer = {
     return score;
   },
 
-  async run({ prisma, wb }) {
+  async run({ prisma, wb, batchId }) {
     const found = findSheetWithHeader(wb, ["origin_port_code", "destination_port_code"]);
     if (!found) throw new Error("AIR: หา header ไม่เจอ");
 
@@ -72,6 +72,7 @@ export const airImporter: Importer = {
           validTo,
           etd: etdN || null,
           agency: agencyN || null,
+          batchId: batchId || null,
 
           fingerprint: makeFingerprint([
             "AIR",

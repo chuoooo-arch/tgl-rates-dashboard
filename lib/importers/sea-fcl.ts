@@ -21,7 +21,7 @@ export const seaFclImporter: Importer = {
       (h.includes("rate_40hc") ? 3 : 0);
     return score;
   },
-  async run({ prisma, wb }) {
+  async run({ prisma, wb, batchId }) {
     const found = findSheetWithHeader(wb, ["origin", "destination", "rate_20gp"]);
     if (!found) throw new Error("SEA_FCL: หา header ไม่เจอ");
     const { sheetName, aoa, headerRowIndex } = found;
@@ -67,6 +67,7 @@ export const seaFclImporter: Importer = {
           transitTime: transitTimeN || null,
           etd: etdN || null,
           agency: agencyN || null,
+          batchId: batchId || null,
 
           fingerprint: makeFingerprint([
             "SEA_FCL",

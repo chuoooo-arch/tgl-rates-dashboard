@@ -37,6 +37,7 @@ model AirRate {
   agency         String?
 
   fingerprint    String?  @unique
+  batchId        String?  @map("batch_id")
   createdAt      DateTime @default(now()) @map("created_at")
 
   @@map("air_rate")
@@ -64,6 +65,7 @@ model SeaFclRate {
   agency       String?
 
   fingerprint  String?  @unique
+  batchId      String?  @map("batch_id")
   createdAt    DateTime @default(now()) @map("created_at")
 
   @@map("sea_fcl_rate")
@@ -88,6 +90,7 @@ model SeaLclRate {
   agency        String?
 
   fingerprint   String?  @unique
+  batchId       String?  @map("batch_id")
   createdAt     DateTime @default(now()) @map("created_at")
 
   @@map("sea_lcl_rate")
