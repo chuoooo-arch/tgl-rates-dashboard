@@ -57,3 +57,4 @@ export default async function RatesPage({ searchParams }: { searchParams: Promis
   );
 
   return <PasswordProtect correctPassword="36925">{content}</PasswordProtect>;
+}
